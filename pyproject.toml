@@ -5,7 +5,13 @@ description = ""
 authors = [
     {name = "Bahadır Araz", email = "bahadiraraz@protonmail.com"},
 ]
-dependencies = []
+dependencies = [
+    "fastapi>=0.105.0",
+    "pymongo>=4.6.1",
+    "pydantic>=2.5.2",
+    "web3>=6.12.0",
+    "python-dotenv>=1.0.0",
+]
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "MIT"}
