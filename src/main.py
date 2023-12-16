@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from dotenv import load_dotenv
 
-from src.helpers import upload_pinata, create_json_and_qr_code
+from src.helpers import upload_pinata, create_json_and_qr_code, verify_signature, verify_organizer_signature
 
 load_dotenv()
 
@@ -118,3 +118,62 @@ async def create_event(event_name: str = Form(...),
 
     result = db.events.insert_one(event_data)
     return {"_id": str(result.inserted_id), "ipfs_hash": ipfs_hash}
+
+
+class AttendEventRequest(BaseModel):
+    event_id: str
+    signature: str
+    signature_address: str
+
+class EndEventRequest(BaseModel):
+    event_id: str
+    signature: str
+@app.post("/attend_event")
+def attend_event(request: AttendEventRequest):
+    event = db.events.find_one({"event_id": request.event_id})
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found.")
+
+    if isinstance(event.get("_id"), ObjectId):
+        event["_id"] = str(event["_id"])
+    print(event)
+    if verify_signature(event["event_name"], event["event_id"], event["timestamp"], request.signature,
+                        request.signature_address):
+        db.events.update_one(
+            {"event_id": request.event_id},
+            {"$push": {"attendees": request.signature_address}}
+        )
+        return {"message": "Attendance recorded successfully."}
+    else:
+        raise HTTPException(status_code=400, detail="Signature verification failed.")
+
+@app.post("/end_event/{event_id}")
+async def end_event(request: EndEventRequest):
+    try:
+        event_id = request.event_id
+        signature = request.signature
+
+        current_event = db.events.find_one({"event_id": event_id})
+        if not current_event:
+            return {"error": "Event not found"}
+
+        issued_place = current_event.get('issued_place')
+        print("Issued Place:", issued_place)  # Debug print
+
+        organizer_info = db.organizers_public_address.find_one({"key": issued_place})
+        if not organizer_info:
+            return {"error": "Organizer's public address not found"}
+
+        print("Organizer Info:", organizer_info)  # Debug print
+
+        if verify_organizer_signature(event_id, signature, organizer_info['value']):
+            db.events.update_one(
+                {"event_id": event_id},
+                {"$set": {"is_active": False}}
+            )
+            return {"message": "Event ended successfully"}
+        else:
+            return {"error": "Invalid signature"}
+
+    except Exception as e:
+        return {"error": str(e)}
